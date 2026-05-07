@@ -159,6 +159,11 @@ if user_query:
                 analyze_btn = st.button("✨ 深度分析摘要", key=f"ai_{pmid}")
             
             # 结果展示：与 with 对齐，脱离列限制实现全宽
+            # --- 分析按钮与展示逻辑 ---
+            btn_col, _ = st.columns([1.5, 5])
+            with btn_col:
+                analyze_btn = st.button("✨ 深度分析摘要", key=f"ai_{pmid}")
+            
             if analyze_btn:
                 if not model:
                     st.error("AI 模型未就绪，请检查侧边栏状态。")
@@ -167,7 +172,34 @@ if user_query:
                         prompt = f"你是一位资深生物医学专家。请针对以下摘要进行深度分析并用中文回答：1.【中文标题翻译】 2.【核心结论总结】 3.【研究亮点与局限】。内容如下：{abstract}"
                         try:
                             response = model.generate_content(prompt)
-                            st.markdown(f'<div class="ai-box">{response.text}</div>', unsafe_allow_html=True)
+                            ai_content = response.text
+                            
+                            # 1. 渲染 AI 分析结果（全宽）
+                            st.markdown(f'<div class="ai-box">{ai_content}</div>', unsafe_allow_html=True)
+                            
+                            # 2. 准备导出内容（Markdown 格式）
+                            export_text = f"""# 文献分析报告: {title}
+* **PMID**: {pmid}
+* **年份**: {year}
+* **原文链接**: https://pubmed.ncbi.nlm.nih.gov/{pmid}/
+
+---
+
+{ai_content}
+
+---
+*报告由 BioGemini Pro 自动生成*
+"""
+                            
+                            # 3. 放置导出按钮
+                            st.download_button(
+                                label="📥 下载此篇分析 (Markdown)",
+                                data=export_text,
+                                file_name=f"BioGemini_Analysis_{pmid}.md",
+                                mime="text/markdown",
+                                key=f"dl_{pmid}" # 必须有唯一的 key
+                            )
+                            
                         except Exception as e:
                             st.error(f"分析失败: {e}")
             
