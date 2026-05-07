@@ -129,7 +129,7 @@ with st.sidebar:
     max_num = st.number_input("展示条数", 5, 50, 10)
 
 st.title("🔬 BioGemini Pro")
-st.markdown("##### 结合 PubMed 实时检索与 Gemini 1.5 深度分析的学术助手")
+st.markdown("##### 结合 PubMed 实时检索与 Gemini 2.5 深度分析的学术助手")
 
 user_query = st.text_input("", placeholder="输入研究领域或关键词 (例如: RSV prevention)...", label_visibility="collapsed")
 
