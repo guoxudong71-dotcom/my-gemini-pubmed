@@ -63,29 +63,42 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 3. 密钥检查与模型初始化
+# --- 3. 密钥检查与模型初始化 ---
 api_key = st.secrets.get("GEMINI_API_KEY")
 if not api_key:
     st.error("🔑 错误：未在 Secrets 中检测到 GEMINI_API_KEY")
     st.stop()
 
+# 强制定义 model，防止出现 NameError
+model = None 
+
 @st.cache_resource
-def init_gemini(key):
+def load_model(key):
     genai.configure(api_key=key)
-    # 尝试按照优先级顺序连接模型
-    # 1. 尝试 1.5 Flash 稳定版
-    # 2. 尝试 1.5 Flash-8B (极速版，几乎不会报错)
-    # 3. 尝试 2.0 Flash 实验版
-    for model_name in ['gemini-1.5-flash', 'gemini-1.5-flash-8b', 'gemini-2.0-flash-exp']:
+    # 按照优先级尝试不同的模型名称
+    model_names = [
+        'gemini-1.5-flash', 
+        'gemini-1.5-flash-latest', 
+        'gemini-1.5-flash-8b', 
+        'gemini-pro'
+    ]
+    
+    for name in model_names:
         try:
-            m = genai.GenerativeModel(model_name)
-            # 测试一下是否真的可用
-            m.generate_content("test", generation_config={"max_output_tokens": 1})
+            m = genai.GenerativeModel(name)
+            # 简单的连通性测试
+            m.generate_content("hi", generation_config={"max_output_tokens": 1})
             return m
-        except:
+        except Exception:
             continue
-    # 如果都失败了，使用最基础的备选方案
-    return genai.GenerativeModel('gemini-pro')
+    return None
+
+# 执行初始化
+model = load_model(api_key)
+
+if model is None:
+    st.error("❌ 无法连接到任何 Gemini 模型版本。请检查您的 API Key 是否有效或网络环境是否受限。")
+    st.stop()
 
 # 4. PubMed 核心逻辑：高级检索与数据提取
 def search_pubmed_advanced(query, years=5, max_results=10, sort="relevance"):
