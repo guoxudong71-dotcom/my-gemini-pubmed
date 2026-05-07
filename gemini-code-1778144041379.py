@@ -16,7 +16,18 @@ st.markdown("""
     .paper-card { padding: 20px; border-radius: 12px; background-color: white; border: 1px solid #eaeaea; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.02); }
     .paper-title { color: #1a1a1a; font-size: 1.2rem; font-weight: 600; margin-bottom: 8px; }
     .year-tag { background-color: #e1f0ff; color: #007bff; padding: 2px 8px; border-radius: 4px; font-size: 0.85rem; font-weight: bold; margin-right: 10px; }
-    .ai-box { background-color: #f0f7ff; padding: 18px; border-left: 5px solid #4A90E2; border-radius: 8px; margin-top: 10px; font-family: sans-serif; }
+    /* AI 分析框样式 - 优化版 */
+    .ai-box {
+        background-color: rgba(74, 144, 226, 0.1); /* 使用透明度，适配深浅模式 */
+        padding: 20px; 
+        border-left: 5px solid #4A90E2; 
+        border-radius: 8px;
+        margin-top: 15px;
+        margin-bottom: 15px;
+        width: 100%; /* 解决竖条问题，强制全宽 */
+        line-height: 1.6;
+        color: inherit; /* 文字颜色继承系统，深色模式变白，浅色模式变黑 */
+    }
     </style>
     """, unsafe_allow_html=True)
 
