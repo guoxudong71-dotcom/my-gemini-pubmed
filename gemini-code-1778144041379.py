@@ -63,24 +63,22 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 3. 密钥检查与模型初始化
-api_key = st.secrets.get("GEMINI_API_KEY")
-if not api_key:
-    st.error("🔑 错误：未在 Secrets 中检测到 GEMINI_API_KEY")
-    st.stop()
-
-@st.cache_resource
-def init_gemini(key):
-    genai.configure(api_key=key)
-    # 自动识别可用模型，解决 404 问题
-    try:
-        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        selected = next((m for m in available_models if 'gemini-1.5-flash' in m), "models/gemini-1.5-flash")
-        return genai.GenerativeModel(selected)
-    except:
-        return genai.GenerativeModel('gemini-1.5-flash')
-
-model = init_gemini(api_key)
+# 3. 配置 Gemini 模型（自动侦测可用版本）
+try:
+    genai.configure(api_key=api_key)
+    
+    # 自动获取当前 API Key 支持的所有模型
+    available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+    
+    # 优先选择 Flash 模型（速度快且免费额度多），如果找不到则选第一个可用的
+    selected_model = next((m for m in available_models if 'gemini-1.5-flash' in m), None)
+    if not selected_model:
+        selected_model = available_models[0] if available_models else "models/gemini-1.5-flash"
+    
+    model = genai.GenerativeModel(selected_model)
+    st.sidebar.success(f"✅ 已自动连接模型: {selected_model}")
+except Exception as e:
+    st.error(f"❌ Gemini 配置失败: {e}")
 
 # 4. PubMed 核心逻辑：高级检索与数据提取
 def search_pubmed_advanced(query, years=5, max_results=10, sort="relevance"):
