@@ -120,18 +120,24 @@ if user_query or search_trigger:
             
             btn_col, _ = st.columns([1, 3])
             with btn_col:
-                if st.button("✨ AI 深度分析", key=f"ai_{pmid}"):
-                    # --- 修正点：调用前检查 model 是否存在 ---
-                    if model is None:
-                        st.error("❌ AI 模型未就绪，请检查 API Key 或侧边栏报错信息。")
-                    else:
-                        with st.spinner("AI 正在分析..."):
-                            prompt = f"作为学术专家，请分析此摘要并用中文输出：1.【中文标题】2.【核心结论】3.【专属 Insight】。内容：{abstract}"
-                            try:
-                                response = model.generate_content(prompt)
-                                st.markdown(f'<div class="ai-box">{response.text}</div>', unsafe_allow_html=True)
-                            except Exception as e:
-                                st.error(f"分析失败: {e}")
+# 交互按钮
+            btn_col, _ = st.columns([1, 3])
+            with btn_col:
+                analyze_clicked = st.button("✨ AI 深度分析", key=f"ai_{pmid}")
+            
+# 修正点：将分析结果放在 columns 之外，确保全宽显示
+            if analyze_clicked:
+                if model is None:
+                    st.error("❌ AI 模型未就绪")
+                else:
+                    with st.spinner("AI 正在研读摘要..."):
+                        prompt = f"作为学术专家，请分析此摘要并用中文输出：1.【中文标题】 2.【核心结论】 3.【专属 Insight】。内容：{abstract}"
+                        try:
+                            response = model.generate_content(prompt)
+                            # 使用 markdown 渲染，并包裹在 ai-box 中
+                            st.markdown(f'<div class="ai-box">{response.text}</div>', unsafe_allow_html=True)
+                        except Exception as e:
+                            st.error(f"分析失败: {e}")
             st.markdown("<br>", unsafe_allow_html=True)
 
 st.markdown("---")
