@@ -3,7 +3,7 @@ import requests
 import google.generativeai as genai
 import xml.etree.ElementTree as ET
 from datetime import datetime
-from docx import Document
+from docx.oxml.ns import qn
 from docx.shared import Pt
 import io
 
