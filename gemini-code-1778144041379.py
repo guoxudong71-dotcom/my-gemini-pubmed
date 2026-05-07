@@ -9,6 +9,7 @@ import io
 
 # 1. 页面基本配置
 st.set_page_config(page_title="BioGemini Pro - 智能文献调研站", page_icon="🧬", layout="wide")
+st.markdown("##### 结合 PubMed 实时检索与 Gemini 1.5 深度分析的学术助手")
 
 # 2. 自定义 CSS
 st.markdown("""
