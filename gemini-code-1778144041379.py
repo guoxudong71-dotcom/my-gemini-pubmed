@@ -120,7 +120,7 @@ if user_query or search_trigger:
             
             btn_col, _ = st.columns([1, 3])
             with btn_col:
-# 交互按钮
+                # 交互按钮
             btn_col, _ = st.columns([1, 3])
             with btn_col:
                 analyze_clicked = st.button("✨ AI 深度分析", key=f"ai_{pmid}")
