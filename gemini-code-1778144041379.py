@@ -19,7 +19,7 @@ if not api_key:
 # 3. 配置 Gemini 模型
 try:
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.0-flash-exp')
+    model = genai.GenerativeModel('gemini-1.0-flash-exp')
 except Exception as e:
     st.error(f"❌ Gemini 配置失败: {e}")
 
