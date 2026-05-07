@@ -72,15 +72,20 @@ if not api_key:
 @st.cache_resource
 def init_gemini(key):
     genai.configure(api_key=key)
-    # 自动识别可用模型，解决 404 问题
-    try:
-        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        selected = next((m for m in available_models if 'gemini-1.5-flash' in m), "models/gemini-1.5-flash")
-        return genai.GenerativeModel(selected)
-    except:
-        return genai.GenerativeModel('gemini-1.5-flash')
-
-model = init_gemini(api_key)
+    # 尝试按照优先级顺序连接模型
+    # 1. 尝试 1.5 Flash 稳定版
+    # 2. 尝试 1.5 Flash-8B (极速版，几乎不会报错)
+    # 3. 尝试 2.0 Flash 实验版
+    for model_name in ['gemini-1.5-flash', 'gemini-1.5-flash-8b', 'gemini-2.0-flash-exp']:
+        try:
+            m = genai.GenerativeModel(model_name)
+            # 测试一下是否真的可用
+            m.generate_content("test", generation_config={"max_output_tokens": 1})
+            return m
+        except:
+            continue
+    # 如果都失败了，使用最基础的备选方案
+    return genai.GenerativeModel('gemini-pro')
 
 # 4. PubMed 核心逻辑：高级检索与数据提取
 def search_pubmed_advanced(query, years=5, max_results=10, sort="relevance"):
