@@ -19,8 +19,8 @@ if not api_key:
 # 3. 配置 Gemini 模型
 try:
     genai.configure(api_key=api_key)
-    # 使用目前最标准、兼容性最好的名称
-    model = genai.GenerativeModel('models/gemini-1.5-flash')
+    # 下面这一行是目前兼容性最强的写法
+    model = genai.GenerativeModel('models/gemini-1.5-flash-001')
 except Exception as e:
     st.error(f"❌ Gemini 配置失败: {e}")
 
