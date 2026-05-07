@@ -2,18 +2,26 @@ import streamlit as st
 import requests
 import google.generativeai as genai
 import xml.etree.ElementTree as ET
+from datetime import datetime
 
-# 1. 页面基本配置
-st.set_page_config(
-    page_title="Gemini PubMed AI 分析站",
-    page_icon="🔬",
-    layout="wide"
-)
+# 1. 页面配置：使用宽屏模式和自定义主题
+st.set_page_config(page_title="BioGemini Pro - 智能文献站", page_icon="🧬", layout="wide")
 
-# 2. 从 Secrets 获取 API Key
+# 自定义 CSS 让排版更像高端科研工具
+st.markdown("""
+    <style>
+    .main { background-color: #f8f9fa; }
+    .stButton>button { width: 100%; border-radius: 20px; border: 1px solid #4A90E2; color: #4A90E2; }
+    .stButton>button:hover { background-color: #4A90E2; color: white; }
+    .reportview-container .main .block-container { padding-top: 2rem; }
+    .paper-card { padding: 1.5rem; border-radius: 10px; background-color: white; border: 1px solid #e1e4e8; margin-bottom: 1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    </style>
+    """, unsafe_allow_stdio=True)
+
+# 2. 密钥检查
 api_key = st.secrets.get("GEMINI_API_KEY")
 if not api_key:
-    st.error("❌ 未在 Secrets 中找到 GEMINI_API_KEY，请检查配置。")
+    st.error("🔑 请在 Secrets 中配置 GEMINI_API_KEY")
     st.stop()
 
 # 3. 配置 Gemini 模型（自动侦测可用版本）
@@ -32,100 +40,100 @@ try:
     st.sidebar.success(f"✅ 已自动连接模型: {selected_model}")
 except Exception as e:
     st.error(f"❌ Gemini 配置失败: {e}")
-# --- 功能函数 ---
 
-def search_pubmed(query, max_results=10):
-    """搜索 PubMed 并返回 ID 列表"""
+# --- 核心逻辑：PubMed 增强搜索 ---
+def search_pubmed_advanced(query, years=5, max_results=10, sort="relevance"):
+    # 构建高级检索词：限定年份和布尔逻辑
+    current_year = datetime.now().year
+    min_year = current_year - years
+    advanced_query = f"({query}) AND ({min_year}:{current_year}[DP])"
+    
     search_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
     params = {
         "db": "pubmed",
-        "term": query,
+        "term": advanced_query,
         "retmax": max_results,
-        "retmode": "json"
+        "retmode": "json",
+        "sort": sort
     }
-    try:
-        r = requests.get(search_url, params=params, timeout=10)
-        r.raise_for_status()
-        return r.json().get("esearchresult", {}).get("idlist", [])
-    except Exception as e:
-        st.error(f"搜索出错: {e}")
-        return []
+    r = requests.get(search_url, params=params)
+    return r.json().get("esearchresult", {}).get("idlist", [])
 
 def get_details(pmid):
-    """获取单篇文献的标题和摘要"""
     fetch_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id={pmid}&retmode=xml"
     try:
         r = requests.get(fetch_url, timeout=10)
-        r.raise_for_status()
         root = ET.fromstring(r.content)
-        
-        # 提取标题
-        title_node = root.find(".//ArticleTitle")
-        title = title_node.text if title_node is not None else "No Title Found"
-        
-        # 提取摘要（合并多个 AbstractText 节点）
-        abstract_nodes = root.findall(".//AbstractText")
-        abstract_text = " ".join([n.text for n in abstract_nodes if n.text])
-        if not abstract_text:
-            abstract_text = "No abstract available."
-            
-        return title, abstract_text
-    except Exception as e:
-        return f"解析错误 (ID: {pmid})", f"无法获取摘要内容: {str(e)}"
+        title = root.find(".//ArticleTitle").text if root.find(".//ArticleTitle") is not None else "No Title"
+        abstracts = root.findall(".//AbstractText")
+        abstract_text = " ".join([n.text for n in abstracts if n.text])
+        # 提取年份
+        pub_date = root.find(".//PubDate/Year")
+        year = pub_date.text if pub_date is not None else "N/A"
+        return title, abstract_text, year
+    except:
+        return None, None, None
 
-# --- 界面展示 ---
+# --- 界面排版 ---
 
-st.title("🔬 PubMed + Gemini 智能分析站")
-st.markdown("---")
-
-# 侧边栏设置
+# 侧边栏：高级检索面板
 with st.sidebar:
-    st.header("搜索设置")
-    max_num = st.slider("最大搜索结果数", 5, 50, 10)
-    st.info("输入关键词，点击展开文献，然后让 Gemini 为你解析。")
+    st.image("https://img.icons8.com/fluency/96/dna-helix.png", width=80)
+    st.title("高级检索设置")
+    st.markdown("---")
+    search_years = st.slider("文献年份范围 (近 X 年)", 1, 20, 5)
+    search_sort = st.selectbox("排序方式", ["relevance", "pub_date"], format_func=lambda x: "相关性" if x=="relevance" else "最新日期")
+    max_num = st.number_input("获取条数", 5, 50, 10)
+    st.markdown("---")
+    st.caption("AI 模型状态: 🟢 已就绪")
 
-# 搜索框
-query = st.text_input("🔍 输入科研关键词：", placeholder="例如: Solid-state battery electrolyte stability")
+# 主界面
+st.title("🔬 BioGemini Pro")
+st.subheader("PubMed 增强型智能学术调研平台")
 
-if query:
-    with st.spinner("正在 PubMed 中检索..."):
-        ids = search_pubmed(query, max_results=max_num)
+# 搜索行
+col_search, col_btn = st.columns([5, 1])
+with col_search:
+    user_query = st.text_input("", placeholder="输入研究关键词 (例如: Single cell RNA sequencing Alzheimer's)", label_visibility="collapsed")
+with col_btn:
+    search_trigger = st.button("开始检索")
+
+if user_query or search_trigger:
+    with st.spinner("正在扫描 PubMed 数据库并构建知识索引..."):
+        ids = search_pubmed_advanced(user_query, years=search_years, max_results=max_num, sort=search_sort)
     
     if not ids:
-        st.warning("⚠️ 未找到相关文献，请尝试更换关键词。")
+        st.warning("未能找到匹配的文献，请尝试缩短搜索词或扩大年份范围。")
     else:
-        st.subheader(f"找到 {len(ids)} 篇相关文献：")
+        st.info(f"💡 找到 {len(ids)} 篇来自近 {search_years} 年的高质量文献")
         
+        # 结果展示：使用卡片排版
         for pmid in ids:
-            title, abstract = get_details(pmid)
+            title, abstract, year = get_details(pmid)
+            if not title: continue
             
-            # 使用 Expander 折叠显示
-            with st.expander(f"📙 {title}"):
-                col1, col2 = st.columns([1, 4])
-                with col1:
-                    st.write(f"**PMID:** `{pmid}`")
-                with col2:
-                    st.write(f"**原文链接:** [点击跳转 PubMed](https://pubmed.ncbi.nlm.nih.gov/{pmid}/)")
+            with st.container():
+                st.markdown(f"""
+                <div class="paper-card">
+                    <span style="color: #4A90E2; font-weight: bold;">[{year}]</span>
+                    <h3 style="margin-top: 0;">{title}</h3>
+                    <p style="font-size: 0.8rem; color: #666;">PMID: {pmid} | <a href="https://pubmed.ncbi.nlm.nih.gov/{pmid}/" target="_blank">View on PubMed</a></p>
+                </div>
+                """, unsafe_allow_stdio=True)
                 
-                # 分析按钮
-                if st.button(f"✨ 使用 Gemini 深度分析", key=f"btn_{pmid}"):
-                    with st.spinner("AI 正在阅读摘要..."):
-                        prompt = f"""
-                        你是一个专业的科研专家。请针对以下文献摘要进行深度分析并用中文回答：
-                        1. 【中文标题】：准确翻译。
-                        2. 【一句话总结】：核心结论是什么。
-                        3. 【专属 Insight】：该研究对相关领域工作的具体启发或局限。
-                        
-                        文献内容：
-                        {abstract}
-                        """
-                        try:
+                # 交互按钮
+                btn_col1, btn_col2 = st.columns([1, 2])
+                with btn_col1:
+                    if st.button("🧠 AI 深度分析", key=f"ai_{pmid}"):
+                        with st.spinner("Gemini 正在研读..."):
+                            prompt = f"你是一个顶级科学家。请分析：1.中文翻译标题 2.核心结论 3.研究的局限性与我的机会。摘要：{abstract}"
                             response = model.generate_content(prompt)
-                            st.markdown("---")
-                            st.success("✅ Gemini 分析结果：")
-                            st.markdown(response.text)
-                        except Exception as e:
-                            st.error(f"Gemini 分析时出错: {e}")
+                            st.markdown(f"""
+                            <div style="background-color: #eef6ff; padding: 15px; border-left: 5px solid #4A90E2; border-radius: 5px;">
+                                {response.text}
+                            </div>
+                            """, unsafe_allow_stdio=True)
+                st.markdown("<br>", unsafe_allow_stdio=True)
 
 st.markdown("---")
-st.caption("Powered by Streamlit | PubMed API | Google Gemini 1.5 Flash")
+st.center = st.caption("BioGemini v2.0 | 专注提升学术生产力")
