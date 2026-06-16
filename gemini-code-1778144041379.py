@@ -11,7 +11,7 @@ import io
 # 1. 页面基本配置
 st.set_page_config(page_title="BioGemini Pro - 智能文献调研站", page_icon="🧬", layout="wide")
 
-# 2. 自定义 CSS
+# 2. 自定义 CSS：这里保留了你的样式
 st.markdown("""
     <style>
     .stApp { background-color: transparent; }
@@ -20,6 +20,8 @@ st.markdown("""
         color: #4A90E2; background-color: transparent; transition: 0.3s;
     }
     .stButton>button:hover { background-color: #4A90E2; color: white; }
+    
+    /* 你的精美卡片样式 */
     .paper-card { 
         padding: 24px; border-radius: 12px; background-color: rgba(128, 128, 128, 0.05); 
         border: 1px solid rgba(128, 128, 128, 0.2); margin-bottom: 20px; 
@@ -52,7 +54,7 @@ if api_key:
     except Exception as e:
         st.sidebar.error(f"❌ 初始化失败: {e}")
 
-# 4. 辅助函数
+# 4. 辅助功能函数
 def search_pubmed_advanced(query, years=5, max_results=10, sort="relevance", days_limit=None):
     search_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
     if days_limit:
@@ -142,23 +144,14 @@ if user_query:
             title, abstract, year = get_details(pmid)
             if not title: continue
             
-            # --- 核心修复：确保 HTML 标签正确渲染，不再显示为代码 ---
-            tag_html = f'<div class="new-tag">NEW</div>' if is_tracking else ''
+            # --- 彻底修复：采用去除前置空白缩进的单行/连续 HTML 字符串，防止被误判为代码块 ---
+            tag_html = '<div class="new-tag">NEW</div>' if is_tracking else ''
+            card_html = f'<div class="paper-card">{tag_html}<span class="year-tag">{year}</span><span style="opacity: 0.7; font-size: 0.85rem;">PMID: {pmid}</span><div class="paper-title">{title}</div><div style="margin-top: 10px;"><a href="https://pubmed.ncbi.nlm.nih.gov/{pmid}/" target="_blank" style="text-decoration: none; color: #4A90E2;">🔗 查看原文 (PubMed)</a></div></div>'
             
-            card_html = f"""
-            <div class="paper-card">
-                {tag_html}
-                <span class="year-tag">{year}</span>
-                <span style="opacity: 0.7; font-size: 0.85rem;">PMID: {pmid}</span>
-                <div class="paper-title">{title}</div>
-                <div style="margin-top: 10px;">
-                    <a href="https://pubmed.ncbi.nlm.nih.gov/{pmid}/" target="_blank" style="text-decoration: none; color: #4A90E2;">🔗 查看原文 (PubMed)</a>
-                </div>
-            </div>
-            """
+            # 渲染卡片
             st.markdown(card_html, unsafe_allow_html=True)
             
-            # --- 分析按钮 ---
+            # --- 分析按钮与输出控制 ---
             btn_col, _ = st.columns([1.5, 5])
             with btn_col:
                 analyze_btn = st.button("✨ 深度分析摘要", key=f"ai_{pmid}")
