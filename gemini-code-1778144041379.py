@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 import google.generativeai as genai
 import xml.etree.ElementTree as ET
-from datetime import datetime, timedelta
+from datetime import datetime
 from docx import Document
 from docx.shared import Pt
 from docx.oxml.ns import qn
@@ -44,14 +44,19 @@ st.markdown("""
 api_key = st.secrets.get("GEMINI_API_KEY")
 model = None
 if api_key:
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    try:
+        genai.configure(api_key=api_key)
+        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        selected_model = next((m for m in available_models if 'gemini-1.5-flash' in m), available_models[0])
+        model = genai.GenerativeModel(selected_model)
+        st.sidebar.success(f"✅ 已连接: {selected_model}")
+    except Exception as e:
+        st.sidebar.error(f"❌ 初始化失败: {e}")
 
-# 4. 增强版检索逻辑：支持相对日期
+# 4. 增强版检索逻辑
 def search_pubmed_advanced(query, years=5, max_results=10, sort="relevance", days_limit=None):
     search_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
     if days_limit:
-        # 如果开启追踪，仅检索最近 N 天
         advanced_query = f"{query} AND (\"last {days_limit} days\"[Filter])"
     else:
         current_year = datetime.now().year
@@ -73,7 +78,7 @@ def get_details(pmid):
         abstracts = root.findall(".//AbstractText")
         abstract_text = " ".join([n.text for n in abstracts if n.text])
         pub_year = root.find(".//PubDate/Year")
-        year = pub_year.text if pub_year is not None else "2026"
+        year = pub_year.text if pub_year is not None else "Recent"
         return title, abstract_text, year
     except: return None, None, None
 
@@ -81,15 +86,32 @@ def create_word_doc(title, pmid, year, analysis_text):
     doc = Document()
     style = doc.styles['Normal']
     style.font.name = 'Times New Roman'
+    style.font.size = Pt(11)
     style.font._element.rPr.rFonts.set(qn('w:eastAsia'), '微软雅黑')
-    doc.add_heading('BioGemini 文献分析报告', 0)
-    doc.add_paragraph(f"标题: {title}\nPMID: {pmid} | 年份: {year}")
-    doc.add_heading('AI 深度分析', level=1)
+    
+    header = doc.add_heading('BioGemini 文献分析报告', 0)
+    for run in header.runs:
+        run.font.name = 'Times New Roman'
+        run.font._element.rPr.rFonts.set(qn('w:eastAsia'), '微软雅黑')
+
+    p = doc.add_paragraph()
+    p.add_run('文献标题: ').bold = True
+    p.add_run(title)
+    
+    p2 = doc.add_paragraph()
+    p2.add_run('PMID: ').bold = True
+    p2.add_run(f"{pmid}  |  ")
+    p2.add_run('年份: ').bold = True
+    p2.add_run(year)
+    
+    doc.add_heading('AI 深度分析结果', level=1)
     for line in analysis_text.split('\n'):
         if line.strip():
-            run = doc.add_paragraph(line).runs[0]
-            run.font.name = 'Times New Roman'
-            run.font._element.rPr.rFonts.set(qn('w:eastAsia'), '微软雅黑')
+            para = doc.add_paragraph(line)
+            for run in para.runs:
+                run.font.name = 'Times New Roman'
+                run.font._element.rPr.rFonts.set(qn('w:eastAsia'), '微软雅黑')
+                
     bio = io.BytesIO(); doc.save(bio); return bio.getvalue()
 
 # 5. 界面布局
@@ -104,42 +126,64 @@ with st.sidebar:
     max_num = st.number_input("展示条数", 5, 50, 10)
 
 st.title("🔬 BioGemini Pro")
+st.markdown("##### 结合 PubMed 实时检索与 Gemini 1.5 深度分析的学术助手")
+
 if is_tracking:
     st.info(f"✨ 当前处于追踪模式：正在为您监控关键词的最新动态（近 {track_days} 天）")
 
-user_query = st.text_input("", placeholder="输入您要长期关注的研究领域...", label_visibility="collapsed")
+user_query = st.text_input("", placeholder="输入研究领域或关键词 (例如: RSV prevention)...", label_visibility="collapsed")
 
 if user_query:
     with st.spinner("🚀 正在为您扫描数据库..."):
         ids = search_pubmed_advanced(user_query, years=search_years, max_results=max_num, sort=search_sort, days_limit=track_days)
     
     if ids:
-        st.success(f"已发现 {len(ids)} 篇符合条件的文献")
+        st.success(f"已为您精选 {len(ids)} 篇文献")
         for pmid in ids:
             title, abstract, year = get_details(pmid)
             if not title: continue
             
-            # 卡片展示
+            # --- 修复点：添加标签判定逻辑并正确使用 st.markdown 渲染 HTML ---
+            tag_html = '<div class="new-tag">NEW</div>' if is_tracking else ''
+            
             st.markdown(f"""
             <div class="paper-card">
-                {'<div class="new-tag">NEW</div>' if is_tracking else ''}
+                {tag_html}
                 <span class="year-tag">{year}</span>
                 <span style="opacity: 0.7; font-size: 0.85rem;">PMID: {pmid}</span>
                 <div class="paper-title">{title}</div>
-                <a href="https://pubmed.ncbi.nlm.nih.gov/{pmid}/" target="_blank" style="text-decoration: none; color: #4A90E2;">🔗 查看原文</a>
+                <div style="margin-top: 10px;">
+                    <a href="https://pubmed.ncbi.nlm.nih.gov/{pmid}/" target="_blank" style="text-decoration: none; color: #4A90E2;">🔗 查看原文 (PubMed)</a>
+                </div>
             </div>
             """, unsafe_allow_html=True)
             
+            # --- 分析按钮与展示逻辑 ---
             btn_col, _ = st.columns([1.5, 5])
-            if btn_col.button("✨ 深度分析", key=f"ai_{pmid}"):
+            with btn_col:
+                analyze_btn = st.button("✨ 深度分析摘要", key=f"ai_{pmid}")
+            
+            if analyze_btn:
                 if model:
-                    with st.spinner("AI 正在研读..."):
-                        response = model.generate_content(f"分析摘要：{abstract}")
-                        st.markdown(f'<div class="ai-box">{response.text}</div>', unsafe_allow_html=True)
-                        st.download_button("📥 下载 Word 报告", create_word_doc(title, pmid, year, response.text), f"BioGemini_{pmid}.docx", key=f"dl_{pmid}")
+                    with st.spinner("AI 正在深度研读中..."):
+                        prompt = f"你是一位资深生物医学专家。请针对以下摘要进行深度分析并用中文回答：1.【中文标题翻译】 2.【核心结论总结】 3.【研究亮点与局限】。内容如下：{abstract}"
+                        try:
+                            response = model.generate_content(prompt)
+                            ai_content = response.text
+                            st.markdown(f'<div class="ai-box">{ai_content}</div>', unsafe_allow_html=True)
+                            
+                            docx_file = create_word_doc(title, pmid, year, ai_content)
+                            st.download_button(
+                                label="📥 下载排版精美的 Word 报告",
+                                data=docx_file,
+                                file_name=f"BioGemini_Analysis_{pmid}.docx",
+                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                key=f"dl_{pmid}"
+                            )
+                        except Exception as e: st.error(f"分析失败: {e}")
             st.markdown("<hr style='opacity: 0.1; margin: 20px 0;'>", unsafe_allow_html=True)
     else:
-        st.warning("暂未发现新更新的文献，请调整追踪频率或关键词。")
+        st.warning("暂未发现相关文献。")
 
 st.markdown("---")
 st.caption("© 2026 BioGemini | 自动追踪与智能分析")
