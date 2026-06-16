@@ -2,147 +2,62 @@ import streamlit as st
 import requests
 import google.generativeai as genai
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timedelta
 from docx import Document
 from docx.shared import Pt
-from docx.oxml.ns import qn  # 必须导入，用于控制中文字体
+from docx.oxml.ns import qn
 import io
 
 # 1. 页面基本配置
 st.set_page_config(page_title="BioGemini Pro - 智能文献调研站", page_icon="🧬", layout="wide")
 
-# 2. 自定义 CSS：适配深浅模式、全宽显示、卡片悬停动效
+# 2. 自定义 CSS
 st.markdown("""
     <style>
     .stApp { background-color: transparent; }
-    
-    /* 按钮样式优化 */
     .stButton>button { 
-        width: 100%; 
-        border-radius: 8px; 
-        border: 1px solid #4A90E2; 
-        color: #4A90E2; 
-        background-color: transparent;
-        transition: 0.3s;
+        width: 100%; border-radius: 8px; border: 1px solid #4A90E2; 
+        color: #4A90E2; background-color: transparent; transition: 0.3s;
     }
-    .stButton>button:hover { 
-        background-color: #4A90E2; 
-        color: white; 
-    }
-
-    /* 论文卡片容器 - 增加 hover 浮起特效 */
+    .stButton>button:hover { background-color: #4A90E2; color: white; }
     .paper-card { 
-        padding: 24px; 
-        border-radius: 12px; 
-        background-color: rgba(128, 128, 128, 0.05); 
-        border: 1px solid rgba(128, 128, 128, 0.2); 
-        margin-bottom: 20px; 
-        transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+        padding: 24px; border-radius: 12px; background-color: rgba(128, 128, 128, 0.05); 
+        border: 1px solid rgba(128, 128, 128, 0.2); margin-bottom: 20px; 
+        transition: transform 0.2s ease-in-out; position: relative;
     }
-    .paper-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 8px 16px rgba(0,0,0,0.1);
-        border-color: #4A90E2;
-    }
+    .paper-card:hover { transform: translateY(-5px); box-shadow: 0 8px 16px rgba(0,0,0,0.1); border-color: #4A90E2; }
     
-    .paper-title { font-size: 1.3rem; font-weight: 600; margin-bottom: 10px; line-height: 1.4; }
-    
-    .year-tag { 
-        background-color: #4A90E2; 
-        color: white; 
-        padding: 2px 10px; 
-        border-radius: 4px; 
-        font-size: 0.85rem; 
-        font-weight: bold; 
-        margin-right: 10px;
+    /* 新文献特别标签 */
+    .new-tag {
+        position: absolute; top: 10px; right: 10px;
+        background-color: #FFD700; color: #333; padding: 2px 8px;
+        border-radius: 4px; font-size: 0.75rem; font-weight: bold;
     }
 
-    /* AI 分析框样式 */
-    .ai-box {
-        background-color: rgba(74, 144, 226, 0.1); 
-        padding: 25px; 
-        border-left: 6px solid #4A90E2; 
-        border-radius: 8px;
-        margin-top: 15px;
-        margin-bottom: 15px;
-        width: 100%; 
-        line-height: 1.7;
-        font-size: 1rem;
-    }
+    .paper-title { font-size: 1.3rem; font-weight: 600; margin-bottom: 10px; line-height: 1.4; }
+    .year-tag { background-color: #4A90E2; color: white; padding: 2px 10px; border-radius: 4px; font-size: 0.85rem; font-weight: bold; margin-right: 10px; }
+    .ai-box { background-color: rgba(74, 144, 226, 0.1); padding: 25px; border-left: 6px solid #4A90E2; border-radius: 8px; margin: 15px 0; width: 100%; line-height: 1.7; }
     </style>
     """, unsafe_allow_html=True)
 
-# 3. 配置 Gemini 模型
+# 3. 配置 Gemini
 api_key = st.secrets.get("GEMINI_API_KEY")
 model = None
+if api_key:
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel("gemini-1.5-flash")
 
-if not api_key:
-    st.error("🔑 未在 Secrets 中找到 API Key")
-else:
-    try:
-        genai.configure(api_key=api_key)
-        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        selected_model = next((m for m in available_models if 'gemini-1.5-flash' in m), available_models[0])
-        model = genai.GenerativeModel(selected_model)
-        st.sidebar.success(f"✅ 已连接: {selected_model}")
-    except Exception as e:
-        st.sidebar.error(f"❌ 初始化失败: {e}")
-
-# 4. 辅助函数：生成字体统一的 Word 文档
-def create_word_doc(title, pmid, year, analysis_text):
-    doc = Document()
-    
-    # 设置全局默认字体 (对西文/数字生效)
-    style = doc.styles['Normal']
-    font = style.font
-    font.name = 'Times New Roman'
-    font.size = Pt(11)
-    # 设置中文字体 (微软雅黑)
-    font._element.rPr.rFonts.set(qn('w:eastAsia'), '微软雅黑')
-
-    # 1. 主标题
-    header = doc.add_heading('BioGemini 文献分析报告', 0)
-    for run in header.runs:
-        run.font.name = 'Times New Roman'
-        run.font._element.rPr.rFonts.set(qn('w:eastAsia'), '微软雅黑')
-
-    # 2. 文献基本信息
-    p = doc.add_paragraph()
-    run1 = p.add_run('文献标题: ')
-    run1.bold = True
-    p.add_run(title)
-    
-    p2 = doc.add_paragraph()
-    run2 = p2.add_run('PMID: ')
-    run2.bold = True
-    p2.add_run(f"{pmid}  |  ")
-    run3 = p2.add_run('年份: ')
-    run3.bold = True
-    p2.add_run(year)
-    
-    # 3. AI 深度分析结果
-    doc.add_heading('AI 深度分析结果', level=1)
-    
-    # 逐段写入，确保每一段都能应用中西文字体映射
-    for line in analysis_text.split('\n'):
-        if line.strip():
-            para = doc.add_paragraph(line)
-            for run in para.runs:
-                run.font.name = 'Times New Roman'
-                run.font._element.rPr.rFonts.set(qn('w:eastAsia'), '微软雅黑')
-    
-    doc.add_paragraph('\n--- Generated by BioGemini Pro ---')
-    
-    bio = io.BytesIO()
-    doc.save(bio)
-    return bio.getvalue()
-
-# 5. PubMed 核心逻辑
-def search_pubmed_advanced(query, years=5, max_results=10, sort="relevance"):
-    current_year = datetime.now().year
-    min_year = current_year - years
-    advanced_query = f"({query}) AND ({min_year}:{current_year}[DP])"
+# 4. 增强版检索逻辑：支持相对日期
+def search_pubmed_advanced(query, years=5, max_results=10, sort="relevance", days_limit=None):
     search_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+    if days_limit:
+        # 如果开启追踪，仅检索最近 N 天
+        advanced_query = f"{query} AND (\"last {days_limit} days\"[Filter])"
+    else:
+        current_year = datetime.now().year
+        min_year = current_year - years
+        advanced_query = f"({query}) AND ({min_year}:{current_year}[DP])"
+    
     params = {"db": "pubmed", "term": advanced_query, "retmax": max_results, "retmode": "json", "sort": sort}
     try:
         r = requests.get(search_url, params=params, timeout=10)
@@ -158,72 +73,73 @@ def get_details(pmid):
         abstracts = root.findall(".//AbstractText")
         abstract_text = " ".join([n.text for n in abstracts if n.text])
         pub_year = root.find(".//PubDate/Year")
-        year = pub_year.text if pub_year is not None else "Recent"
+        year = pub_year.text if pub_year is not None else "2026"
         return title, abstract_text, year
     except: return None, None, None
 
-# 6. 界面布局
+def create_word_doc(title, pmid, year, analysis_text):
+    doc = Document()
+    style = doc.styles['Normal']
+    style.font.name = 'Times New Roman'
+    style.font._element.rPr.rFonts.set(qn('w:eastAsia'), '微软雅黑')
+    doc.add_heading('BioGemini 文献分析报告', 0)
+    doc.add_paragraph(f"标题: {title}\nPMID: {pmid} | 年份: {year}")
+    doc.add_heading('AI 深度分析', level=1)
+    for line in analysis_text.split('\n'):
+        if line.strip():
+            run = doc.add_paragraph(line).runs[0]
+            run.font.name = 'Times New Roman'
+            run.font._element.rPr.rFonts.set(qn('w:eastAsia'), '微软雅黑')
+    bio = io.BytesIO(); doc.save(bio); return bio.getvalue()
+
+# 5. 界面布局
 with st.sidebar:
-    st.markdown("### 🧬 检索控制台")
-    search_years = st.slider("时间跨度 (近 X 年)", 1, 20, 5)
+    st.markdown("### 🧬 追踪控制台")
+    is_tracking = st.toggle("🛰️ 开启主题自动追新", help="开启后将锁定关键词，仅展示最近更新的文献")
+    track_days = st.select_slider("追新频率", options=[1, 3, 7, 30], value=7, format_func=lambda x: f"最近 {x} 天") if is_tracking else None
+    
+    st.markdown("---")
+    search_years = st.slider("常规时间跨度", 1, 20, 5)
     search_sort = st.selectbox("排序规则", ["relevance", "pub_date"], format_func=lambda x: "相关性优先" if x=="relevance" else "最新日期优先")
     max_num = st.number_input("展示条数", 5, 50, 10)
 
 st.title("🔬 BioGemini Pro")
-st.markdown("##### 结合 PubMed 实时检索与 Gemini 2.5 深度分析的学术助手")
+if is_tracking:
+    st.info(f"✨ 当前处于追踪模式：正在为您监控关键词的最新动态（近 {track_days} 天）")
 
-user_query = st.text_input("", placeholder="输入研究领域或关键词 (例如: RSV prevention)...", label_visibility="collapsed")
+user_query = st.text_input("", placeholder="输入您要长期关注的研究领域...", label_visibility="collapsed")
 
 if user_query:
-    with st.spinner("🔍 正在检索 PubMed..."):
-        ids = search_pubmed_advanced(user_query, years=search_years, max_results=max_num, sort=search_sort)
+    with st.spinner("🚀 正在为您扫描数据库..."):
+        ids = search_pubmed_advanced(user_query, years=search_years, max_results=max_num, sort=search_sort, days_limit=track_days)
     
     if ids:
-        st.success(f"已为您精选 {len(ids)} 篇文献")
+        st.success(f"已发现 {len(ids)} 篇符合条件的文献")
         for pmid in ids:
             title, abstract, year = get_details(pmid)
             if not title: continue
             
-            # 论文卡片
+            # 卡片展示
             st.markdown(f"""
             <div class="paper-card">
+                {'<div class="new-tag">NEW</div>' if is_tracking else ''}
                 <span class="year-tag">{year}</span>
                 <span style="opacity: 0.7; font-size: 0.85rem;">PMID: {pmid}</span>
                 <div class="paper-title">{title}</div>
-                <div style="margin-top: 10px;">
-                    <a href="https://pubmed.ncbi.nlm.nih.gov/{pmid}/" target="_blank" style="text-decoration: none; color: #4A90E2;">🔗 查看原文 (PubMed)</a>
-                </div>
+                <a href="https://pubmed.ncbi.nlm.nih.gov/{pmid}/" target="_blank" style="text-decoration: none; color: #4A90E2;">🔗 查看原文</a>
             </div>
             """, unsafe_allow_html=True)
             
-            # 分析按钮
             btn_col, _ = st.columns([1.5, 5])
-            with btn_col:
-                analyze_btn = st.button("✨ 深度分析摘要", key=f"ai_{pmid}")
-            
-            if analyze_btn:
+            if btn_col.button("✨ 深度分析", key=f"ai_{pmid}"):
                 if model:
-                    with st.spinner("AI 正在深度研读中..."):
-                        prompt = f"你是一位资深生物医学专家。请针对以下摘要进行深度分析并用中文回答：1.【中文标题翻译】 2.【核心结论总结】 3.【研究亮点与局限】。内容如下：{abstract}"
-                        try:
-                            response = model.generate_content(prompt)
-                            ai_content = response.text
-                            
-                            # 界面展示分析内容
-                            st.markdown(f'<div class="ai-box">{ai_content}</div>', unsafe_allow_html=True)
-                            
-                            # 生成并放置下载按钮
-                            docx_file = create_word_doc(title, pmid, year, ai_content)
-                            st.download_button(
-                                label="📥 下载排版精美的 Word 报告",
-                                data=docx_file,
-                                file_name=f"BioGemini_Analysis_{pmid}.docx",
-                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                key=f"dl_{pmid}"
-                            )
-                        except Exception as e: st.error(f"分析失败: {e}")
-            
+                    with st.spinner("AI 正在研读..."):
+                        response = model.generate_content(f"分析摘要：{abstract}")
+                        st.markdown(f'<div class="ai-box">{response.text}</div>', unsafe_allow_html=True)
+                        st.download_button("📥 下载 Word 报告", create_word_doc(title, pmid, year, response.text), f"BioGemini_{pmid}.docx", key=f"dl_{pmid}")
             st.markdown("<hr style='opacity: 0.1; margin: 20px 0;'>", unsafe_allow_html=True)
+    else:
+        st.warning("暂未发现新更新的文献，请调整追踪频率或关键词。")
 
 st.markdown("---")
-st.caption("© 2026 BioGemini | 助力学术调研与文献理解")
+st.caption("© 2026 BioGemini | 自动追踪与智能分析")
